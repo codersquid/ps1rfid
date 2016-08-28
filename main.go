@@ -25,16 +25,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/boltdb/bolt"
-	"github.com/hybridgroup/gobot"
-	"github.com/hybridgroup/gobot/platforms/beaglebone"
-	"github.com/hybridgroup/gobot/platforms/gpio"
 	"github.com/loansindi/ps1rfid/cfg"
-	"github.com/tarm/goserial"
+	"github.com/loansindi/ps1rfid/ps1rfid"
 )
 
 var cacheDB *bolt.DB
@@ -62,36 +59,28 @@ func addTagToCacheDB(tag string) {
 	})
 }
 
-func openDoor(sp gpio.DirectPinDriver) {
-	sp.DigitalWrite(1)
-	gobot.After(5*time.Second, func() {
-		sp.DigitalWrite(0)
-	})
-}
-
 func main() {
 
 	var settingsFile string
 	flag.StringVar(&settingsFile, "config", "./config.toml", "Path to the config file")
+	var test = flag.Bool("test", false, "Run server in test mode")
 	flag.Parse()
 	config, err := cfg.ReadConfig(settingsFile)
+	if err != nil {
+		log.Fatalf("Unable to read config file: %v", err)
+	}
 	fmt.Printf("Config: %v", config)
 
 	var code string
-	beagleboneAdaptor := beaglebone.NewBeagleboneAdaptor("beaglebone")
-	//NewDirectPinDriver returns a pointer - this wasn't immediately obvious to me
-	splate := gpio.NewDirectPinDriver(beagleboneAdaptor, "splate", "P9_11")
-	c := &serial.Config{Name: "/dev/ttyUSB0", Baud: 9600}
-	u, err := serial.OpenPort(c)
+	robot, err := ps1rfid.NewRobotter(config, *test)
 	if err != nil {
-		fmt.Print(err)
-		os.Exit(1)
+		log.Fatal(err)
 	}
 
 	// the anonymous function here allows us to call openDoor with splate remaining in scope
 	go http.HandleFunc("/open", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Okay"))
-		openDoor(*splate)
+		robot.OpenDoor()
 	})
 	go http.ListenAndServe(":8080", nil)
 	buf := make([]byte, 16)
